@@ -1,226 +1,196 @@
-/*	server.c file
+/*	client.c file
 	
 	TTP3121 TCP/IP Programming Project (Trimester 1, 2015/16) 
 	Members: 1) H'ng Jaan Lin	1122701742
 		 2) Lim Zhen Yang	1122701265 */
 
 #include "inet.h"
-#include <stdbool.h>
 #define BUFSIZE 1024
 
-main(){
-	int sockfd, new_sockfd, clilen;
-	char buffer[BUFSIZE+1];
-	struct sockaddr_in serv_addr, cli_addr;
-	int bytereceive = 0;
+main(int argc, char *argv[]){
+int sockfd;
+char buffer[BUFSIZE+1];
+int bytereceive = 0;
+struct sockaddr_in serv_addr;
+char createname[20];
+char deletename[20];
+static struct sigaction act;
 
-	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-	  perror("Server: socket() error\n");
-	  exit(1);
-	}
+void catchin(int);
 
-	printf("\n** File Repository Server **\n");
+act.sa_handler = catchin;
+sigfillset(&(act.sa_mask));
 
-	/* Get Server's IP address */
-	FILE *fp;
-	char returnData[64];
-	char *token;
-	char a[1000];	
-	fp = popen("/sbin/ifconfig eth0", "r");
-	while (fgets(returnData, 64, fp) != NULL)
-	{
-		/* store the string in returnData into variable a */
-		strcat(a, returnData);
-	}
+sigaction(SIGINT, &act, (void *) 0);
 
-	/* get the first token and walk through other tokens 
-	   until the IP address token */
-	token = strtok(a, " ");
-	token = strtok(NULL, " ");
-	token = strtok(NULL, " ");
-	token = strtok(NULL, " ");
-	token = strtok(NULL, " ");
-	token = strtok(NULL, " ");
-	token = strtok(NULL, " ");
-	token = strtok(NULL, " addr:");
 
-	/* print the IP address token */
-	printf("Server IP address: %s\n", token);
+if(argc <= 1){
+printf("How to use : %s remoteIPaddress [example: ./client 127.0.0.1]\n", argv[0]); exit(1); }
 
-	bzero((char *) &serv_addr, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = inet_addr(token);
-	serv_addr.sin_port = htons(SERV_TCP_PORT);
+bzero( (char*) &serv_addr, sizeof(serv_addr) );
+serv_addr.sin_family = AF_INET ;
+serv_addr.sin_port = htons (SERV_TCP_PORT);
+inet_pton (AF_INET, argv[1], &serv_addr.sin_addr);
 
-	pclose(fp);
+if( (sockfd = socket(AF_INET, SOCK_STREAM, 0) ) < 0) {
+perror("Client: socket() error \n");
+exit(1); }
 
-	if(bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
-	perror("Server: bind() error\n");
-	printf("\nWaiting for connection... [bind]\n");
+if(connect (sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) <0 ) {
+perror("Client: connect() error\n");
+exit(1);}
 
-	/* Get the user name */ 
+/* Get the user name */ 
 	char *buf; 
 	buf=(char *)malloc(10*sizeof(char)); 
 	buf=getlogin(); 
 
-	/* set the 'server_file' path */ 
+	/* set the 'client_file' path */ 
 	char str[30]; 
 	strcpy(str, "/home/"); 
 	strcat(str, buf); 
-	strcat(str, "/server_file/"); 
+	strcat(str, "/client_file/"); 
 
 	/* Check the path exist or not, if not, create one */ 
 	struct stat s; 
 	if(stat(str, &s) == -1){ 
 	mkdir(str, 0700); }
 
-	listen(sockfd, 5);
-	int p[2];
-	if(pipe(p) == -1)
-	{
-		perror("Fail to create pipe");
-		exit(1);
-	} 
-
-	for(;;){
-	 clilen = sizeof(cli_addr);
-	 new_sockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
-
-	
-	char *clientaddress = inet_ntoa(cli_addr.sin_addr);
-	char *individual_address; 
-	write(p[1], &clientaddress, sizeof(clientaddress));
-	
-	
-
-	if(fork() == 0){
-	  close(sockfd);
-	  strcpy(buffer,"** Hello, welcome to the server. ** \n\nPress\n1.Download File\n2.Send File\n3.Create Directory\n4.Delete Directory(include sub directory)\n[type /q to quit] : ");
-	  send(new_sockfd, buffer, BUFSIZE, 0);
+do{
+bzero( buffer, sizeof(buffer));
+recv(sockfd, buffer, BUFSIZE, 0);
+printf("\n%s\n", buffer); 
+gets(buffer);
+send(sockfd,buffer, BUFSIZE, 0);
 
 
-	if(new_sockfd > 0)
-		
-	  read(p[0],&individual_address,sizeof(individual_address));
-	  printf("\nClient %s connected now.\n", individual_address);
-	  
-
-	do{
-	  
-	  recv(new_sockfd, buffer, BUFSIZE, 0);
-	 
-	  if(!strcmp(buffer, "1"))
-	{	
-		bzero( buffer, sizeof(buffer));
-		strcat(buffer,"[List of files in Server Directory]\nPlease select a file from the list to be download:\n\n");
-		
-		DIR *dir;
-		struct dirent *ent;
-
-		char directoryName[30];
-   		strcpy(directoryName, "/home/"); 
-    		strcat(directoryName, buf); 
-    		strcat(directoryName, "/server_file/");
-
-		if ((dir = opendir (directoryName)) != NULL) {
-		
-			//print all the files and directories within directory 
- 			while ((ent = readdir (dir)) != NULL) {
-
-			strcat(buffer, ent->d_name);
-			strcat(buffer, "\n");
- 			}
- 		 closedir (dir);
-		send(new_sockfd, buffer, BUFSIZE, 0);
-		 
-		}else {
-
-  		// could not open directory 
- 		 perror ("Directory not exist.");
-  		return EXIT_FAILURE;
-		}
-
-	bool exist = true; 
-
-	do{
-
-        
+if(!strcmp(buffer, "1"))
+{
 	bzero( buffer, sizeof(buffer));
-	recv(new_sockfd, buffer, BUFSIZE, 0);
-
-	char filename[30];
+	recv(sockfd, buffer, BUFSIZE, 0);
+	printf("\n%s\n", buffer); 
+	gets(buffer);
+	send(sockfd,buffer, BUFSIZE, 0);
+	
+   	char filename[30];
     	strcpy(filename, "/home/"); 
     	strcat(filename, buf); 
-    	strcat(filename, "/server_file/");
+    	strcat(filename, "/client_file/");
     	strcat(filename, buffer);
     
+    	FILE *fp;
+    	fp = fopen(filename, "ab"); 
+
+		if(NULL == fp)
+    	{
+        	printf("Error opening file");
+        
+    	}
+    
+    	bzero( buffer, sizeof(buffer));
+    
+    	bytereceive = recv(sockfd, buffer, BUFSIZE, 0);
+    	fwrite(buffer,1,bytereceive,fp);
+   
+}
+
+
+else if(!strcmp(buffer, "2"))
+{
+
+		
+	DIR *dir;
+	struct dirent *ent;
+
+	char directoryName[30];
+   	strcpy(directoryName, "/home/"); 
+    	strcat(directoryName, buf); 
+    	strcat(directoryName, "/client_file/");
+
+	if ((dir = opendir (directoryName)) != NULL) {
+		
+		printf("\n[List of files in Client Directory]\n");
+  		// print all the files and directories within directory 
+  		while ((ent = readdir (dir)) != NULL) {
+
+		printf("%s\n", ent->d_name);    }
+
+ 		closedir (dir);
+	}
+
+	printf("\nPlease enter one of the filename from above including extension\n");
 	
-	FILE *fp = fopen(filename, "r");
-	if(fp==NULL)
-        {
-            strcpy(buffer," There is no such file in server.Please key in the correct filename with extension.");
-	    send(new_sockfd, buffer, BUFSIZE, 0);  
-	    exist = false; 
-	   
-        }  
-	
-	if(exist == true )
-	{
+	bzero( buffer, sizeof(buffer));
+	gets(buffer);
+	send(sockfd,buffer, BUFSIZE, 0);
+
+	char filename[30];
+	strcpy(filename, "/home/"); 
+	strcat(filename, buf); 
+	strcat(filename, "/client_file/");
+	    
+	strcat(filename, buffer);
+
+	FILE *fp;
+    	fp = fopen(filename, "r"); 
+
 	bzero( buffer, sizeof(buffer));
 	int nread = fread(buffer,1,256,fp);
-	send(new_sockfd, buffer, nread, 0);
-	}
+	send(sockfd, buffer, nread, 0);	
+}
 
-	bzero( buffer, sizeof(buffer));
-	strcpy(buffer,"Sucessfully Downloaded. [/q to quit]");
 
-	}while(exist == false);
-	}
-	
-	
-	 if(!strcmp(buffer, "2"))
-	{
-		
-		bzero( buffer, sizeof(buffer));
-		recv(new_sockfd, buffer, BUFSIZE, 0);
+else if(!strcmp(buffer, "3"))
+{
+	printf("Enter directory name that you want to create: ");
+	scanf("%s", createname);
 
-		char filename[30];
-		strcpy(filename, "/home/"); 
-		strcat(filename, buf); 
-		strcat(filename, "/server_file/");
-		strcat(filename, buffer);
-		
+	/* set the path/name of the directory that want to create */ 
+	char createDirectory[30]; 
+	strcpy(createDirectory, "/home/"); 
+	strcat(createDirectory, buf); 
+	strcat(createDirectory, "/"); 
+	strcat(createDirectory, createname);
 
-		FILE *fp;
-   	 	fp = fopen(filename, "ab"); 
-		bzero( buffer, sizeof(buffer));
-		bytereceive = recv(new_sockfd, buffer, BUFSIZE, 0);
-		fwrite(buffer,1,bytereceive,fp);
-		fclose(fp);
+	/* Check the path exist or not, if not, create one */ 
+	struct stat s; 
+	if(stat(createDirectory, &s) == -1){ 
+	mkdir(createDirectory, 0700); } 
+}
 
-		bzero( buffer, sizeof(buffer));
-		strcat(buffer,"Sucessfully Sent. [/q to quit]");
-	}
-	
-	 
-	if(!strcmp(buffer, "3"))
-	{
-		bzero( buffer, sizeof(buffer));
-		strcat(buffer,"Sucessfully Created Directory. [/q to quit]");
-	}
 
-	if(!strcmp(buffer, "4"))
-	{
-		bzero( buffer, sizeof(buffer));
-		strcat(buffer,"Sucessfully Deleted Directory. [/q to quit]");
-	}
-	 send(new_sockfd, buffer, BUFSIZE, 0);
-	}while(strcmp(buffer, "/q"));
+else if(!strcmp(buffer, "4"))
+{
+	printf("Enter directory name that you want to delete: ");
+	scanf("%s", deletename);
 
-	printf("\nClient %s disconnected now.\n", individual_address);
-	exit(0);
-	}
-	close(new_sockfd);
-	}
-	close(sockfd);
+	/* set the path of the directory that want to delete */ 
+	char deleteDirectory[30]; 
+	strcpy(deleteDirectory, "/home/"); 
+	strcat(deleteDirectory, buf); 
+	strcat(deleteDirectory, "/"); 
+	strcat(deleteDirectory, deletename);
+
+	/* select all the files inside the directory that want to delete */
+	char selectSubDirectory[50];
+	strcpy(selectSubDirectory, "exec rm -r ");
+	strcat(selectSubDirectory, "/home/"); 
+	strcat(selectSubDirectory, buf); 
+	strcat(selectSubDirectory, "/"); 
+	strcat(selectSubDirectory, deletename);
+	strcat(selectSubDirectory, "/*"); 
+
+	/* Check the path exist or not, if exist, delete it */ 
+	struct stat s; 
+	if(stat(deleteDirectory, &s) != -1){
+	system(selectSubDirectory);
+	rmdir(deleteDirectory); } 
+}
+
+}while (strcmp(buffer, "/q"));
+close(sockfd);
+}
+
+void catchin(int signo){
+	printf("\n[ Interrupt signal has been ignored.]\n");
 }
